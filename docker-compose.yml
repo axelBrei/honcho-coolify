@@ -1,12 +1,11 @@
-# Honcho Docker Compose
+# Honcho self-hosted deployment
+# Primary LLM via "vllm" slot, optional backup via "custom" slot
 #
 # Usage:
-#   cp docker-compose.yml.example docker-compose.yml
-#   cp .env.template .env  # edit with your provider config
-#   docker compose up -d --build
+#   docker compose up -d
+#   docker compose logs -f api deriver
 #
-# By default, ports are bound to 127.0.0.1 (localhost only).
-# For development, uncomment the source mounts and monitoring services below.
+# First run will build the image and run migrations automatically.
 
 services:
   api:
@@ -20,36 +19,15 @@ services:
       redis:
         condition: service_healthy
     # ports:
-      # - "127.0.0.1:8000:8000"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "/app/.venv/bin/python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    # -- Development: mount source for live reload --
-    # volumes:
-    #   - .:/app
-    #   - venv:/app/.venv
+    #   - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - DB_CONNECTION_URI=postgresql+psycopg://postgres:postgres@database:5432/postgres
+      - DB_CONNECTION_URI=postgresql+psycopg://honcho:honcho@database:5432/honcho
       - CACHE_URL=redis://redis:6379/0?suppress=true
       - CACHE_ENABLED=true
-      - LLM_OPENAI_API_KEY=${LLM_OPENAI_API_KEY:-ollama}
-      - DERIVER_MODEL_CONFIG__TRANSPORT=${DERIVER_MODEL_CONFIG__TRANSPORT:-openai}
-      - DERIVER_MODEL_CONFIG__MODEL=${DERIVER_MODEL_CONFIG__MODEL:-llama3.3:70b}
-      - DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL=${DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL:-http://localhost:11434/1}
-      - DERIVER_MODEL_CONFIG__THINKING_EFFORT=${DERIVER_MODEL_CONFIG__THINKING_EFFORT:-minimal}
-      - DIALECTIC_LEVELS__max__MODEL_CONFIG__THINKING_EFFORT=${DIALECTIC_LEVELS__max__MODEL_CONFIG__THINKING_EFFORT:-medium}
-    env_file:
-      - path: .env
-        required: false
+    volumes:
+      - /mnt/mac/Users/axelbreiterman/honcho/docker/entrypoint.sh:/app/docker/entrypoint.sh:ro
     restart: unless-stopped
 
   deriver:
@@ -58,29 +36,17 @@ services:
       dockerfile: Dockerfile
     entrypoint: ["/app/.venv/bin/python", "-m", "src.deriver"]
     depends_on:
-      api:
-        condition: service_healthy
       database:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # -- Development: mount source for live reload --
-    # volumes:
-    #   - .:/app
-    #   - venv:/app/.venv
+    env_file:
+      - .env
     environment:
-      - DB_CONNECTION_URI=postgresql+psycopg://postgres:postgres@database:5432/postgres
+      - DB_CONNECTION_URI=postgresql+psycopg://honcho:honcho@database:5432/honcho
       - CACHE_URL=redis://redis:6379/0?suppress=true
       - CACHE_ENABLED=true
-      - LLM_OPENAI_API_KEY=${LLM_OPENAI_API_KEY:-ollama}
-      - DERIVER_MODEL_CONFIG__TRANSPORT=${DERIVER_MODEL_CONFIG__TRANSPORT:-openai}
-      - DERIVER_MODEL_CONFIG__MODEL=${DERIVER_MODEL_CONFIG__MODEL:-llama3.3:70b}
-      - DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL=${DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL:-http://localhost:11434/1}
-      - DERIVER_MODEL_CONFIG__THINKING_EFFORT=${DERIVER_MODEL_CONFIG__THINKING_EFFORT:-minimal}
-      - DIALECTIC_LEVELS__max__MODEL_CONFIG__THINKING_EFFORT=${DIALECTIC_LEVELS__max__MODEL_CONFIG__THINKING_EFFORT:-medium}      
-    env_file:
-      - path: .env
-        required: false
+      - METRICS_ENABLED=false
     restart: unless-stopped
 
   database:
@@ -90,19 +56,15 @@ services:
     #   - "127.0.0.1:5432:5432"
     command: ["postgres", "-c", "max_connections=200"]
     environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      # Allow passwordless connections from the host (port is bound to 127.0.0.1).
-      # Lets the local test suite and ad-hoc tools connect without supplying a
-      # password. Do NOT use this in production.
-      - POSTGRES_HOST_AUTH_METHOD=trust
+      - POSTGRES_DB=honcho
+      - POSTGRES_USER=honcho
+      - POSTGRES_PASSWORD=honcho
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - /mnt/mac/Users/axelbreiterman/Documents/honcho/db:/var/lib/postgresql/data/
+      - /mnt/mac/Users/axelbreiterman/honcho/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data/
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -U honcho -d honcho"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -113,42 +75,13 @@ services:
     # ports:
     #   - "127.0.0.1:6379:6379"
     volumes:
-      - /mnt/mac/Users/axelbreiterman/Documents/honcho/redis:/data
+      - redis-data:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # -- Development: monitoring stack (uncomment to enable) --
-  # prometheus:
-  #   image: prom/prometheus:v3.2.1
-  #   ports:
-  #     - "127.0.0.1:9090:9090"
-  #   volumes:
-  #     - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-  #     - prometheus-data:/prometheus
-  #   depends_on:
-  #     api:
-  #       condition: service_started
-  # grafana:
-  #   image: grafana/grafana:11.4.0
-  #   ports:
-  #     - "127.0.0.1:3000:3000"
-  #   environment:
-  #     - GF_SECURITY_ADMIN_USER=admin
-  #     - GF_SECURITY_ADMIN_PASSWORD=admin
-  #     - GF_AUTH_ANONYMOUS_ENABLED=true
-  #     - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-  #   volumes:
-  #     - ./docker/grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
-  #   depends_on:
-  #     prometheus:
-  #       condition: service_started
-
-# volumes:
-#   pgdata:
-#   redis-data:
-  # -- Development: uncomment if using source mounts --
-  # venv:
-  # prometheus-data:
+volumes:
+  pgdata:
+  redis-data:
