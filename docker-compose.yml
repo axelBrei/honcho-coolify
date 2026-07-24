@@ -26,8 +26,8 @@ services:
       - DB_CONNECTION_URI=postgresql+psycopg://honcho:honcho@database:5432/honcho
       - CACHE_URL=redis://redis:6379/0?suppress=true
       - CACHE_ENABLED=true
-    volumes:
-      - ./docker/entrypoint.sh:/app/docker/entrypoint.sh:ro
+    # volumes:
+    #   - ./docker/entrypoint.sh:/app/docker/entrypoint.sh:ro
     restart: unless-stopped
 
   deriver:
