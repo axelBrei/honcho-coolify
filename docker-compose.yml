@@ -27,7 +27,7 @@ services:
       - CACHE_URL=redis://redis:6379/0?suppress=true
       - CACHE_ENABLED=true
     volumes:
-      - /mnt/mac/Users/axelbreiterman/honcho/docker/entrypoint.sh:/app/docker/entrypoint.sh:ro
+      - ./docker/entrypoint.sh:/app/docker/entrypoint.sh:ro
     restart: unless-stopped
 
   deriver:
@@ -61,7 +61,7 @@ services:
       - POSTGRES_PASSWORD=honcho
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
-      - /mnt/mac/Users/axelbreiterman/honcho/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
       - pgdata:/var/lib/postgresql/data/
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U honcho -d honcho"]
